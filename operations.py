@@ -64,11 +64,11 @@ class ADD(object):
         if _inst(factor, Term) or _inst(factor, int) or _inst(factor, float):
             if _inst(self.a, ADD):
                 self.a.distribute(factor)
-            else:
+            elif _inst(self.a, Term):
                 self.a.multiply(factor)
             if _inst(self.b, ADD):
                 self.b.distribute(factor)
-            else:
+            elif _inst(self.b, Term):
                 self.b.multiply(factor)
         # If the factor is an ADD, then we'll have to distribute each term
         # of the sum over the ADD factor: (a+b)(c+d) = (a+b)*c + (a+b)*d
@@ -127,3 +127,77 @@ class ADD(object):
             s.append(str(self.b))
         
         return "".join(s)
+
+
+class MULT(object):
+    def __init__(self, a, b):
+        err = False
+        if _inst(a, Term) or _inst(a, ADD) or _inst(a, MULT):
+            self.a = a
+        elif _inst(a, int) or _inst(a, float):
+            self.a = Term(a)
+        else:
+            err = True
+
+        if _inst(b, Term) or _inst(b, ADD) or _inst(a, MULT):
+            self.b = b
+        elif _inst(b, int) or _inst(b, float):
+            self.b = Term(b)
+        else:
+            err = True
+        
+        if err:
+            raise TypeError("{} and {} must be of type int, float, Term, ADD, or MULT.".format(a, b))
+    
+    # TODO: finish simplify
+    def simplify(self):
+        if _inst(self.a, Term):
+            if _inst(self.b, Term):
+                self.a.multiply(self.b)
+                self.b = Term(1)
+            elif _inst(self.b, ADD):
+                self.b.distribute(self.a)
+                self.a = Term(1)
+            # what if b is a MULT?
+        # what if a is an ADD? or a MULT?
+    
+    # TODO: finish value
+    @property
+    def value(self):
+        if _inst(self.a, Term) and _inst(self.b, Term):
+            return Term.product(self.a, self.b)
+        if _inst(self.a, Term):
+            if _inst(self.b, ADD):
+                b = self.b.clone()
+                b.distribute(self.a)
+                return b.value
+            if _inst(self.b, MULT):
+                # depends on what the pieces of the MULT are...
+                pass
+        if _inst(self.b, Term):
+            if _inst(self.a, ADD):
+                a = self.a.clone()
+                a.distribute(self.b)
+                return a.value
+            if _inst(self.a, MULT):
+                pass
+
+    def clone(self):
+        a = self.a.clone()
+        b = self.b.clone()
+        return MULT(a, b)
+
+    def __str__(self):
+        s = []
+        if _inst(self.a, ADD) or _inst(self.a, MULT):
+            s.append("({})".format(str(self.a)))
+        else:
+            s.append(str(self.a))
+        s.append(" * ")
+        if _inst(self.b, ADD) or _inst(self.b, MULT):
+            s.append("({})".format(str(self.b)))
+        else:
+            s.append(str(self.b))
+        
+        return "".join(s)
+
