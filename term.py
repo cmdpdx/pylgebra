@@ -65,8 +65,10 @@ class Term(object):
     is_constant, is_one, is_zero -- tests for special Terms
     add -- add a given Term, if possible, to this Term by adding coefficients.
     multiply -- multiply this term by an int, float, or Term. 
+    power -- raise this Term to the given power.
     clone -- create a new Term exactly like the current one
     """ 
+
     def __init__(self, *factors):
         """Creates a new Term by multiplying the given list of factors.
 
@@ -109,6 +111,8 @@ class Term(object):
                 break
         if err:
             raise TypeError("parameters must be of type int, float, str, Variable, or VariablePower.")
+        # just in case there are var^0, clear them now to prevent like-term mistakes
+        self._simplify()
     
     def _merge_variable(self, other):
         self._merge_variables([other])
@@ -123,12 +127,22 @@ class Term(object):
 
         to_add = []
         for other_var in other_vars:
+            matched = False
             for var in self.variables:
                 if var.base == other_var.base:
                     var.power += other_var.power
-                else:
-                    to_add.append(other_var.clone())
+                    matched = True
+                    break
+            if not matched: to_add.append(other_var.clone())
         self.variables += to_add
+
+    def _simplify(self):
+        """Converts 0 exponent variables to 1; removes variables if coefficient is 0"""
+        if self.coefficient == 0 and self.variables:
+            self.variables = []
+        else:
+            variables = [var for var in self.variables if var.power != 0]
+            self.variables = variables
 
     def like_term(self, other):
         if len(self.variables) != len(other.variables):
@@ -166,6 +180,7 @@ class Term(object):
         if not self.like_term(other):
             raise ValueError("{} and {} are not like terms".format(self, other))
         self.coefficient += other.coefficient
+        self._simplify()
 
     def multiply(self, other):
         """Multiply this Term by an int, float, or Term.
@@ -182,6 +197,16 @@ class Term(object):
             self._merge_variables(other.variables)
         else:
             raise TypeError("must multiply a Term by an int, float, or Term.")
+        self._simplify()
+
+    def power(self, exp):
+        """Raise this Term to the exp power."""
+        if not _is_a(exp, int):
+            raise ValueError("Terms can only be raised to integer powers")
+        self.coefficient = self.coefficient ** exp
+        for var in self.variables:
+            var.power *= exp
+        self._simplify()
 
     def clone(self):
         """Return a new Term instance, cloning all variables."""
