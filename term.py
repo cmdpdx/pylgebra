@@ -1,6 +1,12 @@
-_inst = isinstance
+def _is_a(obj, *types):
+    """Returns True if obj is any of the given types; False otherwise."""
+    for t in types:
+        if isinstance(obj, t): return True
+    return False
+
 
 class Variable(object):
+    """Base object to represent an unknown value."""
     def __init__(self, label, value=None):
         self.label = label
         self.value = value
@@ -13,11 +19,22 @@ class Variable(object):
 
 
 class VariablePower(object):
+    """Represents a variable raised to any power; used to build Terms.
+    
+    Properties:
+    base -- the base of the power; returns a Variable (read-only)
+    power -- the exponent the base is raised to (read/write)
+
+    Public methods:
+    clone -- returns a new VariablePower instance with the same Variable and power. Note
+        that the Variable is not a clone (since all variables with the same label 
+        represent the same unknown value). 
+    """
     def __init__(self, variable, power=1):
         self.power = power
-        if _inst(variable, Variable):
+        if _is_a(variable, Variable):
             self.variable = variable
-        elif _inst(variable, str):
+        elif _is_a(variable, str):
             self.variable = Variable(variable)
         else:
             raise TypeError("parameter 'variable' must be of type Variable or str.")
@@ -38,6 +55,18 @@ class VariablePower(object):
 
 
 class Term(object):
+    """A term in an algebraic expression.
+
+    A term contains a real-number coefficient and 0 or more variables multiplying the
+    coefficient, each variable raised to any integer power (TODO: allow rational exp).
+
+    Pubic methods:
+    like_term --  returns True if the given Term's variables match this Term; else False
+    is_constant, is_one, is_zero -- tests for special Terms
+    add -- add a given Term, if possible, to this Term by adding coefficients.
+    multiply -- multiply this term by an int, float, or Term. 
+    clone -- create a new Term exactly like the current one
+    """ 
     def __init__(self, *factors):
         """Creates a new Term by multiplying the given list of factors.
 
@@ -64,16 +93,16 @@ class Term(object):
         self.coefficient = 1
         self.variables = []
         for factor in factors:
-            if _inst(factor, int) or _inst(factor, float):
+            if _is_a(factor, int, float):
                 self.coefficient *= factor
-            elif _inst(factor, str) or _inst(factor, Variable):
+            elif _is_a(factor, str, Variable):
                 self._merge_variable(VariablePower(factor))
-            elif _inst(factor, VariablePower):
+            elif _is_a(factor, VariablePower):
                 self._merge_variable(factor)
-            elif _inst(factor, tuple):
+            elif _is_a(factor, tuple):
                 var, power = factor
                 self._merge_variable(VariablePower(var, power))
-            elif _inst(factor, list):
+            elif _is_a(factor, list):
                 factors += factor
             else:
                 err = True
@@ -85,6 +114,7 @@ class Term(object):
         self._merge_variables([other])
 
     def _merge_variables(self, other_vars):
+        """Multiply the given list of variables with this term's variables."""
         # if no variables are multiplyin this term, multiply 
         # all of the incoming variables as is
         if not self.variables:
@@ -128,24 +158,14 @@ class Term(object):
         ValueError -- if the terms to be added are not like terms
         """
         # allow ints, floats to be added to constants
-        if (_inst(other, int) or _inst(other, float)) and self.is_constant():
+        if _is_a(other, int, float) and self.is_constant():
             self.coefficient += other
             return
-        if not _inst(other, Term):
+        if not _is_a(other, Term):
             raise TypeError("{} must be of type Term to add to {}".format(other, self))
         if not self.like_term(other):
             raise ValueError("{} and {} are not like terms".format(self, other))
         self.coefficient += other.coefficient
-
-    # Does not alter either Term in the addition; returns a new Term instance
-    @staticmethod
-    def sum(a, b):
-        if not (_inst(a, Term) and _inst(b, Term)):
-            raise TypeError("{} and {} must both be of type Term to sum.".format(a, b))
-        if not a.like_term(b):
-            raise ValueError("{} and {} are not like terms".format(a, b))
-        coeff = a.coefficient + b.coefficient
-        return Term(coeff, a.variables)
 
     def multiply(self, other):
         """Multiply this Term by an int, float, or Term.
@@ -153,30 +173,18 @@ class Term(object):
         Raises:
         TypeError -- if other is a type other than int, float, or Term
         """
-        if _inst(other, int) or _inst(other, float):
+        if _is_a(other, int, float):
             self.coefficient *= other
-        elif _inst(other, Term) and other.is_constant():
+        elif _is_a(other, Term) and other.is_constant():
             self.coefficient *= other.coefficient
-        elif _inst(other, Term):
+        elif _is_a(other, Term):
             self.coefficient *= other.coefficient
             self._merge_variables(other.variables)
         else:
             raise TypeError("must multiply a Term by an int, float, or Term.")
 
-    @staticmethod
-    def product(a, b):
-        if _inst(a, Term):
-            term = a.clone()
-            term.multiply(b)
-            return term
-        elif _inst(b, Term):
-            term = b.clone()
-            term.multiply(a)
-            return term
-        else:
-            raise TypeError("one factor must be a Term to multiply.")
-
     def clone(self):
+        """Return a new Term instance, cloning all variables."""
         variables = []
         for var in self.variables:
             variables.append(var.clone())
@@ -192,3 +200,21 @@ class Term(object):
         for var in self.variables:
             s.append("[{}]".format(str(var)))
         return "".join(s)
+    
+    @staticmethod
+    def sum(a, b):
+        if not (_is_a(a, Term) and _is_a(b, Term)):
+            raise TypeError("{} and {} must both be of type Term to sum.".format(a, b))
+        if not a.like_term(b):
+            raise ValueError("{} and {} are not like terms".format(a, b))
+        coeff = a.coefficient + b.coefficient
+        return Term(coeff, a.variables)
+
+    @staticmethod
+    def sum(a, b):
+        if not (_is_a(a, Term) and _is_a(b, Term)):
+            raise TypeError("{} and {} must both be of type Term to sum.".format(a, b))
+        if not a.like_term(b):
+            raise ValueError("{} and {} are not like terms".format(a, b))
+        coeff = a.coefficient + b.coefficient
+        return Term(coeff, a.variables)
