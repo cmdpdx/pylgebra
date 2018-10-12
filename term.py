@@ -1,7 +1,12 @@
 def _is_a(obj, *types):
     """Returns True if obj is any of the given types; False otherwise."""
-    for t in types:
-        if isinstance(obj, t): return True
+    types = list(types)
+    while types:
+        t = types.pop()
+        # allow lists or tuples of types to be passed
+        if isinstance(t, list) or isinstance(t, tuple):
+            types += t
+        elif isinstance(obj, t): return True
     return False
 
 
@@ -91,7 +96,6 @@ class Term(object):
         # in case there are lists or tuples in factors we'll need to be able to
         # extend factors.
         factors = list(factors)
-        err = False
         self.coefficient = 1
         self.variables = []
         for factor in factors:
@@ -106,11 +110,11 @@ class Term(object):
                 self._merge_variable(VariablePower(var, power))
             elif _is_a(factor, list):
                 factors += factor
+            elif _is_a(factor, Term):
+                self.coefficient *= factor.coefficient
+                self._merge_variables(factor.variables)
             else:
-                err = True
-                break
-        if err:
-            raise TypeError("parameters must be of type int, float, str, Variable, or VariablePower.")
+                raise TypeError("parameters must be of type int, float, str, Variable, VariablePower, or Term.")
         # just in case there are var^0, clear them now to prevent like-term mistakes
         self._simplify()
     
@@ -215,6 +219,11 @@ class Term(object):
             variables.append(var.clone())
         return Term(self.coefficient, variables)
 
+    @property
+    def value(self):
+        """Get a clone of this term."""
+        return self.clone()
+
     def __eq__(self, other):
         return self.like_term(other) and (self.coefficient == other.coefficient)
 
@@ -226,20 +235,23 @@ class Term(object):
             s.append("[{}]".format(str(var)))
         return "".join(s)
     
-    @staticmethod
-    def sum(a, b):
-        if not (_is_a(a, Term) and _is_a(b, Term)):
-            raise TypeError("{} and {} must both be of type Term to sum.".format(a, b))
-        if not a.like_term(b):
-            raise ValueError("{} and {} are not like terms".format(a, b))
-        coeff = a.coefficient + b.coefficient
-        return Term(coeff, a.variables)
 
-    @staticmethod
-    def sum(a, b):
-        if not (_is_a(a, Term) and _is_a(b, Term)):
-            raise TypeError("{} and {} must both be of type Term to sum.".format(a, b))
-        if not a.like_term(b):
-            raise ValueError("{} and {} are not like terms".format(a, b))
-        coeff = a.coefficient + b.coefficient
-        return Term(coeff, a.variables)
+def sum(a, b):
+    if not (_is_a(a, Term) and _is_a(b, Term)):
+        raise TypeError("{} and {} must both be of type Term to sum.".format(a, b))
+    if not a.like_term(b):
+        raise ValueError("{} and {} are not like terms".format(a, b))
+    coeff = a.coefficient + b.coefficient
+    return Term(coeff, a.variables)
+
+def product(a, b):
+    if _is_a(a, Term):
+        term = a.clone()
+        term.multiply(b)
+        return term
+    elif _inst(b, Term):
+        term = b.clone()
+        term.multiply(a)
+        return term
+    else:
+        raise TypeError("one factor must be a Term to multiply.")
