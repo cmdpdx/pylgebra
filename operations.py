@@ -1,8 +1,6 @@
 from term import Term, _is_a
 from math import factorial
 
-_OPERATION = (ADD, MULT, POW)
-
 def _prod(first, last):
     """Multiply the numbers from first to last, inclusive."""
     prod = 1
@@ -58,10 +56,32 @@ class ADD(object):
                 terms.append(addend)
         return terms
 
+    def _pack_add(self, terms):
+        """Pack a list of terms into nested ADDs."""
+        a = None
+        b = None
+        # One term: save it to a, make b = 0
+        if len(terms) == 1:
+            a = terms[0]
+            b = Term(0)
+        # More than one: nest ADDs as needed for > 2 terms
+        else:
+            a = terms.pop()
+            b = terms.pop()
+            while len(terms):
+                a = ADD(a, b)
+                b = terms.pop()
+        
+        return (a, b)
+
     def _combine_term(self, term, dest):
+        if not _is_a(term, Term):
+            dest.append(term)
+            return
+
         found = False
         for dest_term in dest:
-            if dest_term.like_term(term):
+            if _is_a(dest_term, Term) and dest_term.like_term(term):
                 dest_term.add(term)
                 found = True
                 break
@@ -79,28 +99,9 @@ class ADD(object):
         terms = []
         # It's all addition; combine like terms, unless it's another operation
         for term in all_terms:
-            if _is_a(term, Term):
-                self._combine_term(term, terms)
-            else:
-                terms.append(term)
+            self._combine_term(term, terms)
 
-        # One term left: save it to a, make b = 0
-        if len(terms) == 1:
-            self.a = terms[0]
-            self.b = Term(0)
-        # Two terms left: save them both
-        elif len(terms) == 2:
-            self.a = terms[0]
-            self.b = terms[1]
-        # More than two, group pairs into ADD objects
-        else:
-            a = terms.pop()
-            b = terms.pop()
-            while len(terms):
-                a = ADD(a, b)
-                b = terms.pop()
-            self.a = a
-            self.b = b
+        self.a, self.b = self._pack_add(terms)
 
     def distribute(self, factor):
         """Multiply factor to both terms of the sum."""
@@ -131,9 +132,13 @@ class ADD(object):
             factor_b.distribute(self.b)
             factor_a.simplify()
             factor_b.simplify()
-            self.a = factor_a.value
-            self.b = factor_b.value
-        self.simplify()
+            terms = []
+            all_terms = factor_a.terms + factor_b.terms
+            for term in all_terms:
+                self._combine_term(term.value, terms)
+            
+            self.a, self.b = self._pack_add(terms)
+
             
     def clone(self):
         """Create a new ADD object identical to this one."""
@@ -147,18 +152,27 @@ class ADD(object):
         t = []
         if _is_a(self.a, ADD):
             t += self.a.terms
-        else:
+        elif _is_a(self.a, Term) and not self.a.is_zero:
+            t.append(self.a)
+        elif not _is_a(self.a, Term):
             t.append(self.a)
         
         if _is_a(self.b, ADD):
             t += self.b.terms
-        else:
+        elif _is_a(self.b, Term) and not self.b.is_zero:
             t.append(self.b)
+        elif not _is_a(self.b, Term):
+            t.append(self.b)
+
         return t
 
     @property
+    def addends(self):
+        return (self.a.value, self.b.value)
+
+    @property
     def value(self):
-        if _is_a(self.b, Term) and self.b.is_zero():
+        if _is_a(self.b, Term) and self.b.is_zero:
             return self.a.value
         else:
             return self.clone()
@@ -183,14 +197,14 @@ class ADD(object):
 
 class MULT(object):
     def __init__(self, a, b):
-        if _is_a(a, Term, ADD, MULT):
+        if _is_a(a, Term, _OPERATION):
             self.a = a.clone()
         elif _is_a(a, int, float):
             self.a = Term(a)
         else:
             raise TypeError("{} and {} must be of type int, float, Term, or any operation object.".format(a, b))
 
-        if _is_a(b, Term, ADD, MULT):
+        if _is_a(b, Term, _OPERATION):
             self.b = b.clone()
         elif _is_a(b, int, float):
             self.b = Term(b)
@@ -201,17 +215,17 @@ class MULT(object):
         """Perform the multiplication, simplify results as much as possible.
 
         Multiplication can always be performed, and so the result should never
-        be a MULT; possible results are Term and ADD. For consistency, the result
+        be a MULT. For consistency, the result
         is stored in self.a, with the multiplicative identity in self.b.
         """
         # simplfiy inner groups first (PEMDAS)
         # Save the results in local a and b variables
-        if _is_a(self.a, ADD, MULT):
+        if _is_a(self.a, _OPERATION):
             self.a.simplify()
             a = self.a.value    # a is either a Term or ADD
         else:
             a = self.a
-        if _is_a(self.b, ADD, MULT):
+        if _is_a(self.b, _OPERATION):
             self.b.simplify()
             b = self.b.value    # b is either a Term or ADD
         else:
@@ -223,28 +237,26 @@ class MULT(object):
             a.multiply(b)
             self.a, self.b = a, Term(1)
         elif _is_a(a, Term) and _is_a(b, ADD):
-            b.simplify()
             b.distribute(a)
             # TODO: determine if the ADD is really just a Term
             self.a, self.b = b, Term(1)
         elif _is_a(a, ADD) and _is_a(b, Term):
-            a.simplify()
             a.distribute(b)
             self.a, self.b = a, Term(1)
-        # (a+b) * (c+d) = a(c+d) + b(c+d)
         elif _is_a(a, ADD) and _is_a(b, ADD):
-            a.simplify()
-            b.simplify()
-            first = b.distribute(a.a)
-            second = b.distribute(a.b)
-            self.a, self.b = ADD(first, second), Term(1)
+            a.distribute(b.value)
+            self.a, self.b = a, Term(1)
     
     @property
     def value(self):
-        if self.b.is_one():
+        if self.b.is_one:
             return self.a.value
         else:
             return self.clone()
+
+    @property
+    def factors(self):
+        return (self.a.value, self.b.value)
 
     def clone(self):
         a = self.a.clone()
@@ -270,11 +282,11 @@ class POW(object):
     def __init__(self, base, exponent):
         if not _is_a(exponent, int, float):
             raise TypeError("exponent must be of type int or float.")
-        self.exponent = exponent
+        self._exponent = exponent
         if _is_a(base, int, float):
-            self.base = Term(base)
-        elif _is_a(base, Term, ADD, MULT, POW):
-            self.base = base
+            self._base = Term(base)
+        elif _is_a(base, Term, _OPERATION):
+            self._base = base
         else:
             raise TypeError("base must be a Term or operation")
     
@@ -299,28 +311,27 @@ class POW(object):
         MULT: wrap POW around both factors with same power
         POW: make base = POW's base; multiply powers
         """
-        if self.exponent == 0:
-            self.base = Term(1)
-            self.exponent = 1
+        if self._exponent == 0:
+            self._base = Term(1)
+            self._exponent = 1
             return
 
-        if _is_a(self.base, Term):
-            self.base.power(self.exponent)
-            self.exponent = 1
-        elif _is_a(self.base, ADD):
+        if _is_a(self._base, Term):
+            self._base.power(self._exponent)
+            self._exponent = 1
+        elif _is_a(self._base, ADD):
             # Error on negative exponents on ADDs for now. TODO: add binomial expansion for neg exp.
-            if self.exponent < 0:
+            if self._exponent < 0:
                 raise NotImplementedError
 
             # Binomial expansion: from 0 to the exponent
             # Since 0 exponents are dealt with as a special case, we can assume exponent != 0
             # Thus we will always have at least two terms (from the ADD)
-            a = self.base.a
-            b = self.base.b
+            a, b = self._base.addends
             terms = []
-            for i in range(0, self.exponent+1):
-                coeff = choose(self.exponent, i)
-                fact_a = POW(a.value, self.exponent-i)
+            for i in range(0, self._exponent + 1):
+                coeff = choose(self._exponent, i)
+                fact_a = POW(a.value, self._exponent - i)
                 fact_b = POW(b.value, i)
                 # recursively simplify POWs
                 fact_a.simplify()
@@ -332,34 +343,43 @@ class POW(object):
                 term_a = ADD(term_a, term_b)
                 term_b = terms.pop()
             
-            self.base = ADD(term_a, term_b)
-            self.exponent = 1
+            self._base = ADD(term_a, term_b)
+            self._exponent = 1
             
-        elif _is_a(self.base, MULT):
-            a = POW(self.base.a.value, self.exponent)
-            b = POW(self.base.b.value, self.exponent)
+        elif _is_a(self._base, MULT):
+            fact_a, fact_b = self._base.factors
+            a = POW(fact_a, self._exponent)
+            b = POW(fact_b, self._exponent)
             a.simplify()
             b.simplify()
-            self.base = MULT(a.value, b.value)
-            self.exponent = 1
-        elif _is_a(self.base, POW):
-            self.exponent *= self.base.exponent
-            self.base = self.base.base.value
+            self._base = MULT(a.value, b.value)
+            self._exponent = 1
+        elif _is_a(self._base, POW):
+            self._exponent *= self._base.exponent
+            self._base = self._base.base
             
     def clone(self):
         """Return a new POW identical to this one."""
-        return POW(self.base.clone(), self.exponent)
-    
-    # TODO: base and exponent properties
+        return POW(self._base.clone(), self._exponent)
+
+    @property
+    def base(self):
+        return self._base.value
+
+    @property
+    def exponent(self):
+        return self._exponent
 
     @property
     def value(self):
         """Get the value of the POW: the value of the base if exp is 1, else a clone of this POW."""
-        if self.exponent == 1:
-            return self.base.value
+        if self._exponent == 1:
+            return self._base.value
         else:
             return self.clone()
 
     def __str__(self):
-        return "({})^{}".format(self.base, self.exponent)
+        return "({})^{}".format(self._base.value, self._exponent)
         
+        
+_OPERATION = (ADD, MULT, POW)
