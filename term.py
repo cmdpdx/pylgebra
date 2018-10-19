@@ -67,11 +67,14 @@ class Term(object):
 
     Pubic methods:
     like_term --  returns True if the given Term's variables match this Term; else False
-    is_constant, is_one, is_zero -- tests for special Terms
     add -- add a given Term, if possible, to this Term by adding coefficients.
     multiply -- multiply this term by an int, float, or Term. 
     power -- raise this Term to the given power.
     clone -- create a new Term exactly like the current one
+
+    Properties:
+    is_constant, is_one, is_zero -- tests for special Terms
+    value -- returns a clone of this Term
     """ 
 
     def __init__(self, *factors):
@@ -155,15 +158,6 @@ class Term(object):
             if var not in other.variables:
                 return False
         return True
-    
-    def is_constant(self):
-        return self.is_zero() or not self.variables
-
-    def is_one(self):
-        return self.is_constant() and self.coefficient == 1
-
-    def is_zero(self):
-        return self.coefficient == 0
 
     def add(self, other):
         """Adds a Term (if possible) to the current Term.
@@ -176,7 +170,7 @@ class Term(object):
         ValueError -- if the terms to be added are not like terms
         """
         # allow ints, floats to be added to constants
-        if _is_a(other, int, float) and self.is_constant():
+        if _is_a(other, int, float) and self.is_constant:
             self.coefficient += other
             return
         if not _is_a(other, Term):
@@ -194,7 +188,7 @@ class Term(object):
         """
         if _is_a(other, int, float):
             self.coefficient *= other
-        elif _is_a(other, Term) and other.is_constant():
+        elif _is_a(other, Term) and other.is_constant:
             self.coefficient *= other.coefficient
         elif _is_a(other, Term):
             self.coefficient *= other.coefficient
@@ -220,6 +214,18 @@ class Term(object):
         return Term(self.coefficient, variables)
 
     @property
+    def is_constant(self):
+        return self.is_zero or not self.variables
+
+    @property
+    def is_one(self):
+        return self.is_constant and self.coefficient == 1
+
+    @property
+    def is_zero(self):
+        return self.coefficient == 0
+
+    @property
     def value(self):
         """Get a clone of this term."""
         return self.clone()
@@ -229,13 +235,14 @@ class Term(object):
 
     def __str__(self):
         s = []
-        if self.coefficient != 1 or self.is_constant():
+        if self.coefficient != 1 or self.is_constant:
             s.append(str(self.coefficient))
         for var in self.variables:
             s.append("[{}]".format(str(var)))
         return "".join(s)
     
-
+"""
+# Deprecated (temporarily?)
 def sum(a, b):
     if not (_is_a(a, Term) and _is_a(b, Term)):
         raise TypeError("{} and {} must both be of type Term to sum.".format(a, b))
@@ -255,3 +262,4 @@ def product(a, b):
         return term
     else:
         raise TypeError("one factor must be a Term to multiply.")
+"""
