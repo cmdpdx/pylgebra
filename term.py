@@ -124,23 +124,34 @@ class Term(object):
     def _merge_variable(self, other):
         self._merge_variables([other])
 
-    def _merge_variables(self, other_vars):
-        """Multiply the given list of variables with this term's variables."""
-        # if no variables are multiplyin this term, multiply 
+    def _merge_variables(self, other_vars, division=False):
+        """Multiply the given list of variables with this term's variables.
+        
+        If division == True, multiply other_var.power by -1 before adding, since
+        (x^a)/(x^b) = x^(a-b).
+        """
+        # if no variables are multiplying this term, multiply 
         # all of the incoming variables as is
         if not self.variables:
             self.variables = other_vars.copy()
+            if division:
+                for var in self.variables:
+                    var.power *= -1
             return
 
         to_add = []
+        sign = 1 if not division else -1
         for other_var in other_vars:
             matched = False
             for var in self.variables:
                 if var.base == other_var.base:
-                    var.power += other_var.power
+                    var.power += other_var.power * sign
                     matched = True
                     break
-            if not matched: to_add.append(other_var.clone())
+            if not matched: 
+                var = other_var.clone()
+                var.power *= sign
+                to_add.append(var)
         self.variables += to_add
 
     def _simplify(self):
@@ -196,6 +207,23 @@ class Term(object):
         else:
             raise TypeError("must multiply a Term by an int, float, or Term.")
         self._simplify()
+    
+    def divide(self, other):
+        """Multiply this Term by an int, float, or Term.
+        
+        Raises:
+        TypeError -- if other is a type other than int, float, or Term
+        """
+        if _is_a(other, int, float):
+            self.coefficient /= other
+        elif _is_a(other, Term) and other.is_constant:
+            self.coefficient /= other.coefficient
+        elif _is_a(other, Term):
+            self.coefficient /= other.coefficient
+            self._merge_variables(other.variables, division=True)
+        else:
+            raise TypeError("must divide a Term by an int, float, or Term.")
+        self._simplify()
 
     def power(self, exp):
         """Raise this Term to the exp power."""
@@ -231,6 +259,7 @@ class Term(object):
         return self.clone()
 
     def __eq__(self, other):
+        if not _is_a(other, Term): return False
         return self.like_term(other) and (self.coefficient == other.coefficient)
 
     def __str__(self):
