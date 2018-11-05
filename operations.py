@@ -1,7 +1,7 @@
 from term import Term, _is_a
 from math import factorial
 
-def _prod(first, last):
+def _seq_product(first, last):
     """Multiply the numbers from first to last, inclusive."""
     prod = 1
     for i in range(first, last+1):
@@ -20,40 +20,48 @@ def choose(n, k):
     # nCk = n! / (k! * (n-k)!)
     # don't need the entire n! in the numerator, reduce by the (n-k)! in the denominator
     # so numerator = n * (n-1) * (n-2) * ... * (n-k+1)!
-    numer = _prod((n-k) + 1, n)
+    numer = _seq_product((n-k) + 1, n)
     # we already reduced the (n-k)! factor, just need k!
     denom = factorial(k)
     return numer // denom
 
 class ADD(object):
-    def __init__(self, a, b):
-        err = False
-        if _is_a(a, Term, OPERATION):
-            self.a = a.clone()
-        elif _is_a(a, int, float):
-            self.a = Term(a)
-        else:
-            raise TypeError("{} and {} must be of type int, float, Term, or any operation object.".format(a, b))
+    def __init__(self, augend, addend):
+        """Summary.
 
-        if _is_a(b, Term, OPERATION):
-            self.b = b.clone()
-        elif _is_a(b, int, float):
-            self.b = Term(b)
+        Parameters:
+        augend -- the first part of the addition. Can be an int, float, Term 
+            or any other operation 
+        addend -- the second part of the addition. Same restrictions as augend
+        """
+        if _is_a(augend, Term, OPERATION):
+            self._augend = augend.clone()
+        elif _is_a(augend, int, float):
+            self._augend = Term(augend)
         else:
-            raise TypeError("{} and {} must be of type int, float, Term, or any operation object.".format(a, b))
+            raise TypeError("{} and {} must be of type int, float, Term, or any operation object.".format(augend, addend))
+
+        if _is_a(addend, Term, OPERATION):
+            self._addend = addend.clone()
+        elif _is_a(addend, int, float):
+            self._addend = Term(addend)
+        else:
+            raise TypeError("{} and {} must be of type int, float, Term, or any operation object.".format(a, addend))
     
-    # TODO: is this just a redundant version of .terms?
-    def _unpack_add(self, add):
-        """Recursively separates ADDs into their two terms, unpack ADDs along the way.
+    def _unpack_add(self):
+        """Recursively separate nested ADDs into a flast list of terms.
 
-        Note that no other operators are simplified here; they are just returned with
+        No other operators are simplified here; they are just returned with
         the rest of the terms.
         """
         terms = []
-        for addend in (add.a, add.b):
+        for addend in (self._augend, self._addend):
             if _is_a(addend, ADD):
-                terms += self._unpack_add(addend)
-            else:
+                terms += addend._unpack_add()
+            # only include non-trivial terms and operations other than ADDs
+            elif _is_a(addend, Term) and not addend.is_zero:
+                terms.append(addend)
+            elif not _is_a(addend, Term):
                 terms.append(addend)
         return terms
 
@@ -69,7 +77,7 @@ class ADD(object):
         else:
             a = terms.pop()
             b = terms.pop()
-            while len(terms):
+            while terms:
                 a = ADD(a, b)
                 b = terms.pop()
         
@@ -80,14 +88,12 @@ class ADD(object):
         if not _is_a(term, Term):
             dest.append(term)
             return
-
-        found = False
+        # look for a like term to combine with; if none found, append term to list of terms
         for dest_term in dest:
             if _is_a(dest_term, Term) and dest_term.like_term(term):
                 dest_term.add(term)
-                found = True
-                break
-        if not found: dest.append(term)
+                return
+        dest.append(term)
 
     def simplify(self):
         """Combines all like terms within both terms of the add.
@@ -103,7 +109,7 @@ class ADD(object):
         for term in all_terms:
             self._combine_term(term, terms)
 
-        self.a, self.b = self._pack_add(terms)
+        self._augend, self._addend = self._pack_add(terms)
 
     def distribute(self, factor):
         """Multiply factor to both terms of the sum."""
@@ -111,27 +117,31 @@ class ADD(object):
         # If a term is a Term or ADD, the factor is multiplied/distributed through
         # If a term is a MULT or POW, wrap the term in a MULT (simplified later)
         if _is_a(factor, Term, int, float):
-            if _is_a(self.a, ADD):
-                self.a.distribute(factor)
-            elif _is_a(self.a, Term):
-                self.a.multiply(factor)
-            elif _is_a(self.a, MULT, POW):
-                self.a = MULT(factor, self.a)
+            if _is_a(self._augend, ADD):
+                self._augend.distribute(factor)
+            elif _is_a(self._augend, Term):
+                self._augend.multiply(factor)
+            elif _is_a(self._augend, MULT, POW):
+                prod = MULT(factor, self._augend)
+                prod.simplify()
+                self._augend = prod.value
                 
-            if _is_a(self.b, ADD):
-                self.b.distribute(factor)
-            elif _is_a(self.b, Term):
-                self.b.multiply(factor)
-            elif _is_a(self.b, MULT, POW):
-                self.b = MULT(factor, self.b)
+            if _is_a(self._addend, ADD):
+                self._addend.distribute(factor)
+            elif _is_a(self._addend, Term):
+                self._addend.multiply(factor)
+            elif _is_a(self._addend, MULT, POW):
+                prod = MULT(factor, self._addend)
+                prod.simplify()
+                self._addend = prod.value
         # If the factor is an ADD, then we'll have to distribute each term
         # of the sum over the ADD factor: (a+b)(c+d) = a*(c+d) + b*(c+d)
         # Those new products become the terms of this ADD
         elif _is_a(factor, ADD):
             factor_a = factor.clone()
             factor_b = factor.clone()
-            factor_a.distribute(self.a)
-            factor_b.distribute(self.b)
+            factor_a.distribute(self._augend)
+            factor_b.distribute(self._addend)
             # resolve any new MULTs as a result of the distribute
             factor_a.simplify()
             factor_b.simplify()
@@ -141,52 +151,52 @@ class ADD(object):
             for term in all_terms:
                 self._combine_term(term.value, terms)
             # pack resulting terms into ADDS as needed
-            self.a, self.b = self._pack_add(terms)
+            self._augend, self._addend = self._pack_add(terms)
 
     def clone(self):
         """Create a new ADD object identical to this one."""
-        a = self.a.clone()
-        b = self.b.clone()
+        a = self._augend.clone()
+        b = self._addend.clone()
         return ADD(a, b)
             
     @property
     def terms(self):
         """Get a flat list of all terms in both addends of the ADD, unpacking ADDs."""
-        t = []
-        for addend in (self.a, self.b):
-            if _is_a(addend, ADD):
-                t += addend.terms
-            # only include non-trivial terms
-            elif _is_a(addend, Term) and not addend.is_zero:
-                t.append(addend)
-            elif not _is_a(addend, Term):
-                t.append(addend)
-        return t
+        return self._unpack_add()
 
     @property
     def addends(self):
-        return (self.a.value, self.b.value)
+        """Get both addends (terms) of the sum as a tuple."""
+        return (self._augend.value, self._addend.value)
+
+    @property
+    def augend(self):
+        return self._augend.value
+
+    @property
+    def addend(self):
+        return self._addend.value
 
     @property
     def value(self):
-        """Get the "true" value of the ADD; return a copy.
+        """Get the true value of the ADD; return a copy.
         
-        If the b term is 0, then only return the value of the a term. Otherwise, clone
-        this ADD.
+        If the self._addend term is 0, then only return the value of the self._augend term.
+        Otherwise, clone this ADD.
         
-        A value of 0 in the b term is an indication that this ADD has been simplified.
-        By returning only the a term, ADDs can be reduced, when possible, by using
+        A value of 0 in the addend term is an indication that this ADD has been simplified.
+        By returning only the augend term, ADDs can be reduced, when possible, by calling
         ADD.value.
         """
-        if _is_a(self.b, Term) and self.b.is_zero:
-            return self.a.value
+        if _is_a(self._addend, Term) and self._addend.is_zero:
+            return self._augend.value
         else:
             return self.clone()
 
     def __eq__(self, other):
         if not _is_a(other, ADD): return False
         # Shallow equality, doesn't take commutivity/associativity into consideration
-        # return (self.a == other.a) and (self.b == other.b)
+        # return (self.augend == other.augend) and (self.addend == other.addend)
         # Deeper equality: would they evaluate to the same value? Check term by term.
         self_terms = self.terms
         other_terms = other.terms
@@ -203,38 +213,50 @@ class ADD(object):
 
     def __str__(self):
         s = []
-        if _is_a(self.a, ADD):
-            s.append("({})".format(str(self.a)))
+        if _is_a(self._augend, ADD):
+            s.append("({})".format(str(self._augend)))
         else:
-            s.append(str(self.a))
+            s.append(str(self._augend))
         s.append(" + ")
-        if _is_a(self.b, ADD):
-            s.append("({})".format(str(self.b)))
+        if _is_a(self._addend, ADD):
+            s.append("({})".format(str(self._addend)))
         else:
-            s.append(str(self.b))
+            s.append(str(self._addend))
         
         return "".join(s)
 
 
 class MULT(object):
-    def __init__(self, a, b):
-        if _is_a(a, Term, OPERATION):
-            self.a = a.clone()
-        elif _is_a(a, int, float):
-            self.a = Term(a)
-        else:
-            raise TypeError("{} and {} must be of type int, float, Term, or any operation object.".format(a, b))
+    def __init__(self, multiplicand, multiplier):
+        """Summary.
 
-        if _is_a(b, Term, OPERATION):
-            self.b = b.clone()
-        elif _is_a(b, int, float):
-            self.b = Term(b)
+        Parameters:
+        multiplicand -- the first factor of the product. Can be type int, float, Term,
+            or any operation
+        multiplier -- the second factor of the product. Same restrictions as multiplicand
+        """
+        if _is_a(multiplicand, Term, OPERATION):
+            self._multiplicand = multiplicand.clone()
+        elif _is_a(multiplicand, int, float):
+            self._multiplicand = Term(multiplicand)
         else:
-            raise TypeError("{} and {} must be of type int, float, Term, or any operation object.".format(a, b))
+            raise TypeError("{} and {} must be of type int, float, Term, or any operation object.".format(multiplicand, multiplier))
+
+        if _is_a(multiplier, Term, OPERATION):
+            self._multiplier = multiplier.clone()
+        elif _is_a(multiplier, int, float):
+            self._multiplier = Term(multiplier)
+        else:
+            raise TypeError("{} and {} must be of type int, float, Term, or any operation object.".format(multiplicand, multiplier))
     
     def _unpack_mult(self):
+        """Recursively separate nested MULTs into a flast list of factors.
+
+        No other operators are simplified here; they are just returned with
+        the rest of the factors.
+        """
         factors = []
-        for factor in (self.a.value, self.b.value):
+        for factor in (self._multiplicand.value, self._multiplier.value):
             if _is_a(factor, MULT):
                 factors += factor._unpack_mult()
             # only include non-trivial factors
@@ -250,39 +272,49 @@ class MULT(object):
 
         Multiplication can always be performed, and so the result should never
         be a MULT. For consistency, the result
-        is stored in self.a, with the multiplicative identity in self.b.
+        is stored in self._multiplicand, with the multiplicative identity in self._multiplier.
         """
         # simplfiy inner groups first (PEMDAS)
-        # Save the results in local a and b variables
-        if _is_a(self.a, OPERATION):
-            self.a.simplify()
-            a = self.a.value    # a is either a Term or ADD
-        else:
-            a = self.a
-        if _is_a(self.b, OPERATION):
-            self.b.simplify()
-            b = self.b.value    # b is either a Term or ADD
-        else:
-            b = self.b
+        # Save the results in local multiplicand and multiplier variables
+        if _is_a(self._multiplicand, OPERATION): self._multiplicand.simplify()
+        if _is_a(self._multiplier, OPERATION): self._multiplier.simplify()
 
-        # There should only be four possibilities at this point:
-        # Term x Term, Term x ADD, ADD x Term, ADD x ADD
-        if _is_a(a, Term) and _is_a(b, Term):
-            a.multiply(b)
-            self.a, self.b = a, Term(1)
-        elif _is_a(a, Term) and _is_a(b, ADD):
-            print("term and add")
-            b.distribute(a)
-            print(b)
-            # TODO: determine if the ADD is really just a Term
-            self.a, self.b = b, Term(1)
-        elif _is_a(a, ADD) and _is_a(b, Term):
-            a.distribute(b)
-            self.a, self.b = a, Term(1)
-        elif _is_a(a, ADD) and _is_a(b, ADD):
-            a.distribute(b.value)
-            self.a, self.b = a, Term(1)
+        multiplicand = self._multiplicand.value
+        multiplier = self._multiplier.value
+      
+        if _is_a(multiplicand, Term) and _is_a(multiplier, Term):
+            multiplicand.multiply(multiplier)
+            self._multiplicand, self._multiplier = multiplicand, Term(1)
+        elif _is_a(multiplicand, Term) and _is_a(multiplier, ADD):
+            multiplier.distribute(multiplicand)
+            self._multiplicand, self._multiplier = multiplier, Term(1)
+        elif _is_a(multiplicand, ADD) and _is_a(multiplier, Term):
+            multiplicand.distribute(multiplier)
+            self._multiplicand, self._multiplier = multiplicand, Term(1)
+        elif _is_a(multiplicand, ADD) and _is_a(multiplier, ADD):
+            multiplicand.distribute(multiplier)
+            self._multiplicand, self._multiplier = multiplicand, Term(1)
+        elif _is_a(multiplicand, Term, ADD) and _is_a(multiplier, DIV):
+            numer = MULT(multiplicand, multiplier.dividend.value)
+            numer.simplify()
+            self._multiplicand = DIV(numer.value, multiplier.divisor.value)
+            self._multiplier = Term(1)
+        elif _is_a(multiplicand, DIV) and _is_a(multiplier, Term, ADD):
+            numer = MULT(multiplier, multiplicand.dividend.value)
+            numer.simplify()
+            self._multiplicand = DIV(numer.value, multiplicand.divisor.value)
+            self._multiplier = Term(1)
+        elif _is_a(multiplicand, DIV) and _is_a(multiplier, DIV):
+            numer = MULT(multiplicand.dividend.value, multiplier.dividend.value)
+            numer.simplify()
+            denom = MULT(multiplicand.divisor.value, multiplier.divisor.value)
+            denom.simplify()
+            self._multiplicand = DIV(numer.value, denom.value)
+            self._multiplier = Term(1)
     
+    def clone(self):
+        return MULT(self._multiplicand.clone(), self._multiplier.clone())
+
     @property
     def value(self):
         """Get the "true" value of the MULT; return a copy.
@@ -294,17 +326,22 @@ class MULT(object):
         By returning only the a factor, MULTs can be reduced, when possible, by using
         MULT.value.
         """
-        if self.b.is_one:
-            return self.a.value
+        if _is_a(self._multiplier, Term) and self._multiplier.is_one:
+            return self._multiplicand.value
         else:
             return self.clone()
 
     @property
     def factors(self):
-        return (self.a.value, self.b.value)
+        return (self._multiplicand.value, self._multiplier.value)
 
-    def clone(self):
-        return MULT(self.a.clone(), self.b.clone())
+    @property
+    def multiplicand(self):
+        return self._multiplicand.value
+    
+    @property
+    def multiplier(self):
+        return self._multiplier.value
 
     def __eq__(self, other):
         if not _is_a(other, MULT): return False
@@ -323,15 +360,15 @@ class MULT(object):
 
     def __str__(self):
         s = []
-        if _is_a(self.a, ADD, MULT):
-            s.append("({})".format(str(self.a)))
+        if _is_a(self._multiplicand, ADD, MULT):
+            s.append("({})".format(str(self._multiplicand)))
         else:
-            s.append(str(self.a))
+            s.append(str(self._multiplicand))
         s.append(" * ")
-        if _is_a(self.b, ADD, MULT):
-            s.append("({})".format(str(self.b)))
+        if _is_a(self._multiplier, ADD, MULT):
+            s.append("({})".format(str(self._multiplier)))
         else:
-            s.append(str(self.b))
+            s.append(str(self._multiplier))
         
         return "".join(s)
 
@@ -339,41 +376,100 @@ class MULT(object):
 class DIV(object):
     def __init__(self, dividend, divisor):
         if _is_a(dividend, int, float):
-            self.dividend = Term(dividend)
+            self._dividend = Term(dividend)
         elif _is_a(dividend, Term, OPERATION):
-            self.dividend = dividend
+            self._dividend = dividend
         else:
             raise TypeError("dividend and divisor must be of type int, float, Term, or any operation object.")
         if _is_a(divisor, int, float):
-            self.divisor = Term(divisor)
+            self._divisor = Term(divisor)
         elif _is_a(divisor, Term, OPERATION):
-            self.divisor = divisor
+            self._divisor = divisor
         else:
             raise TypeError("dividend and divisor must be of type int, float, Term, or any operation object.")
     
     def simplify(self):
-        """Summary statement.
+        """Attempt to simplify the division, simplifying higher-precedence operations first.
 
-        Division can always be performed (except if divisor = 0). The following rules are used:
+        Note that in this case, due to the binary nature of the operation classes, precedence/
+        order of operations is explicit, not implied. Nesting => precedence. 
+        
+        The following rules are used:
         - Simplify dividend and divisor first, save .values
         - Term / Term => use Term.divide() to simplify to a single Term
-        - Term / OPERATION => can't be simplified further at the moment
+        - x / DIV => reciprocate and multiply: create a DIV of (MULT of x and divisor) and
+            dividend; simplify and save the div's dividend and divisor in self 
         - ADD / x => wrap a DIV around each addend, dividing by x. Recursively call 
-            simplify on new DIVS?
+            simplify on new DIVS, create an ADD of each DIV.value
+        - Term / ADD => can't be simplified further at the moment
+
         - MULT / x => POW.simplify can still return a MULT...
-        - POW / x => POW.simplify can still return a POW... 
         """
-        self.dividend.simplify()
-        self.divisor.simplify()
-        nume = self.dividend.value
-        denom = self.divisor.value
-        if _is_a(nume, Term) and _is_a(denom, Term):
-            nume.divide(denom)
-            self.dividend = nume
-            self.divisor = Term(1)
+        # divisor == 1 means the DIV is already simplified (or doesn't need to be)
+        if _is_a(self._divisor, Term) and self._divisor.is_one:
+            return
+
+        if _is_a(self._dividend, OPERATION): self._dividend.simplify()
+        if _is_a(self._divisor, OPERATION): self._divisor.simplify()
+        numer = self._dividend.value
+        denom = self._divisor.value
+
+        if _is_a(numer, Term) and _is_a(denom, Term):
+            numer.divide(denom)
+            self._dividend = numer
+            self._divisor = Term(1)
+        elif _is_a(denom, DIV):
+            # reciprocate and multiply! 
+            # simplify the mult because it can always be reduced
+            numer = MULT(numer, denom.divisor)
+            numer.simplify()
+            denom = denom.dividend  # * 1
+            div = DIV(numer.value, denom)
+            # simplify the new div, since that's what we were really doing here
+            div.simplify()
+            self._dividend = div.dividend
+            self._divisor = div.divisor
+        elif _is_a(numer, ADD) and _is_a(denom, Term):
+            # divide both addends by the divisor, simplify if possible
+            augend = DIV(numer.augend, denom)
+            addend = DIV(numer.addend, denom)
+            augend.simplify()
+            addend.simplify()
+            self._dividend = ADD(augend.value, addend.value)
+            self._divisor = Term(1)
+        elif _is_a(numer, Term) and _is_a(denom, ADD):
+            # can't do anything further, save the simplified numer and denom
+            self._dividend = numer
+            self._divisor = denom
         else:
             print("not yet implemented")
 
+    def clone(self):
+        return DIV(self._dividend.clone(), self._divisor.clone())
+
+    @property
+    def dividend(self):
+        return self._dividend.value
+    
+    @property
+    def divisor(self):
+        return self._divisor.value
+    
+    @property
+    def value(self):
+        """Get the true value of the DIV; return a copy.
+        
+        If the divisor is 1, then only return the value of the dividend; otherwise
+        clone this DIV. 
+        
+        A value of 1 in the divisor is an indication that this DIV has been simplified.
+        By returning only the value of dividend, DIVs can be reduced, when possible, by using
+        DIV.value.
+        """
+        if _is_a(self._divisor, Term) and self._divisor.is_one:
+            return self._dividend.value
+        else:
+            return self.clone()
 
 class POW(object):
     def __init__(self, base, exponent):
@@ -388,6 +484,12 @@ class POW(object):
             raise TypeError("base must be a Term or operation")
     
     def simplify(self):
+        self._simplify()
+        # in case of nested POWs; get down to some other operation/term as the base
+        while _is_a(self._base, POW):
+            self._simplify()
+
+    def _simplify(self):
         """Apply the exponent to the base according to the rules of exponents.
 
         Powers can always be simplified, since Terms keep track of the exponent on their
@@ -405,31 +507,37 @@ class POW(object):
         Rules of exponents:
         Term: apply exponent to the coefficient, add power to exponents of variables
         ADD: binomial expansion of terms (https://en.wikipedia.org/wiki/Binomial_theorem)
-        MULT: wrap POW around both factors with same power
+        MULT: wrap POW around both factors with same power, keep as MULT 
+        DIV: wrap POW around divisor and dividend with same power, keep as DIV
         POW: make base = POW's base; multiply powers
         """
+        # Anything ^0 = 1 (see docstring)
         if self._exponent == 0:
             self._base = Term(1)
             self._exponent = 1
+            return
+        # exponent = 1 is already simplified (or was given as simplified) 
+        if self._exponent == 1:
             return
 
         if _is_a(self._base, Term):
             self._base.power(self._exponent)
             self._exponent = 1
         elif _is_a(self._base, ADD):
-            # Error on negative exponents on ADDs for now. TODO: add binomial expansion for neg exp.
+            # Error on negative exponents on ADDs for now. 
+            # TODO: add binomial expansion for neg exp.
             if self._exponent < 0:
                 raise NotImplementedError
 
             # Binomial expansion: from 0 to the exponent
             # Since 0 exponents are dealt with as a special case, we can assume exponent != 0
             # Thus we will always have at least two terms (from the ADD)
-            a, b = self._base.addends
+            augend, addend = self._base.augend, self._base.addend
             terms = []
             for i in range(0, self._exponent + 1):
                 coeff = choose(self._exponent, i)
-                fact_a = POW(a.value, self._exponent - i)
-                fact_b = POW(b.value, i)
+                fact_a = POW(augend.clone(), self._exponent - i)
+                fact_b = POW(addend.clone(), i)
                 # recursively simplify POWs
                 fact_a.simplify()
                 fact_b.simplify()
@@ -444,12 +552,21 @@ class POW(object):
             self._exponent = 1
             
         elif _is_a(self._base, MULT):
-            fact_a, fact_b = self._base.factors
-            a = POW(fact_a, self._exponent)
-            b = POW(fact_b, self._exponent)
-            a.simplify()
-            b.simplify()
-            self._base = MULT(a.value, b.value)
+            multiplicand = POW(self._base.multiplicand, self._exponent)
+            multiplier = POW(self._base.multiplier, self._exponent)
+            multiplicand.simplify()
+            multiplier.simplify()
+            # MULTs can always be reduced; no need to save that as the base
+            base = MULT(multiplicand.value, multiplier.value)
+            base.simplify()
+            self._base = base.value
+            self._exponent = 1
+        elif _is_a(self._base, DIV):
+            dividend = POW(self._base.dividend, self._exponent)
+            divisor = POW(self._base.divisor, self._exponent)
+            dividend.simplify()
+            divisor.simplify()
+            self._base = DIV(dividend.value, divisor.value)
             self._exponent = 1
         elif _is_a(self._base, POW):
             self._exponent *= self._base.exponent
