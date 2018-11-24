@@ -26,13 +26,15 @@ def choose(n, k):
     return numer // denom
 
 class ADD(object):
-    def __init__(self, augend, addend):
-        """Summary.
+    def __init__(self, augend, addend, subtract=False):
+        """Create an addition between the augend and the addend.
 
         Parameters:
         augend -- the first part of the addition. Can be an int, float, Term 
             or any other operation 
         addend -- the second part of the addition. Same restrictions as augend
+        subtract -- consider this object as subtraction? If so, MULT the addend
+            by -1
         """
         if _is_a(augend, Term, OPERATION):
             self._augend = augend.clone()
@@ -48,6 +50,12 @@ class ADD(object):
         else:
             raise TypeError("{} and {} must be of type int, float, Term, or any operation object.".format(a, addend))
     
+        # for subtraction, multiply through a -1 and deal with it like addition
+        if subtract:
+            self._addend = MULT(-1, self._addend)
+            self._addend.simplify()
+            self._addend = self._addend.value
+
     def _unpack_add(self):
         """Recursively separate nested ADDs into a flast list of terms.
 
@@ -113,31 +121,10 @@ class ADD(object):
 
     def distribute(self, factor):
         """Multiply factor to both terms of the sum."""
-        # If factor is a Term, int, or float, multiply both terms by factor
-        # If a term is a Term or ADD, the factor is multiplied/distributed through
-        # If a term is a MULT or POW, wrap the term in a MULT (simplified later)
-        if _is_a(factor, Term, int, float):
-            if _is_a(self._augend, ADD):
-                self._augend.distribute(factor)
-            elif _is_a(self._augend, Term):
-                self._augend.multiply(factor)
-            elif _is_a(self._augend, MULT, POW):
-                prod = MULT(factor, self._augend)
-                prod.simplify()
-                self._augend = prod.value
-                
-            if _is_a(self._addend, ADD):
-                self._addend.distribute(factor)
-            elif _is_a(self._addend, Term):
-                self._addend.multiply(factor)
-            elif _is_a(self._addend, MULT, POW):
-                prod = MULT(factor, self._addend)
-                prod.simplify()
-                self._addend = prod.value
         # If the factor is an ADD, then we'll have to distribute each term
         # of the sum over the ADD factor: (a+b)(c+d) = a*(c+d) + b*(c+d)
         # Those new products become the terms of this ADD
-        elif _is_a(factor, ADD):
+        if _is_a(factor, ADD):
             factor_a = factor.clone()
             factor_b = factor.clone()
             factor_a.distribute(self._augend)
@@ -152,6 +139,37 @@ class ADD(object):
                 self._combine_term(term.value, terms)
             # pack resulting terms into ADDS as needed
             self._augend, self._addend = self._pack_add(terms)
+        # If factor is a Term, int, or float, multiply both terms by factor
+        # If a term is a Term or ADD, the factor is multiplied/distributed through
+        # If a term is a MULT or POW, wrap the term in a MULT (simplified later)
+        elif _is_a(factor, Term, int, float):
+            if _is_a(self._augend, ADD):
+                self._augend.distribute(factor)
+            elif _is_a(self._augend, Term):
+                self._augend.multiply(factor)
+            elif _is_a(self._augend, OPERATION):
+                prod = MULT(factor, self._augend)
+                prod.simplify()
+                self._augend = prod.value
+                
+            if _is_a(self._addend, ADD):
+                self._addend.distribute(factor)
+            elif _is_a(self._addend, Term):
+                self._addend.multiply(factor)
+            elif _is_a(self._addend, OPERATION:
+                prod = MULT(factor, self._addend)
+                prod.simplify()
+                self._addend = prod.value
+        # if factor is some other operation, MULT both terms and simplify
+        elif _is_a(factor, OPERATION):
+            prod = MULT(factor, self._augend)
+            prod.simplify()
+            self._augend = prod.value
+            prod = MULT(factor, self._addend)
+            prod.simplify()
+            self._addend = prod.value
+        else:
+            raise TypeError(factor, "({}) is not a recognized type to ditribute over an ADD.".format(type))
 
     def clone(self):
         """Create a new ADD object identical to this one."""
@@ -226,9 +244,14 @@ class ADD(object):
         return "".join(s)
 
 
+class SUB(ADD):
+    def __init__(self, augend, addend):
+        super().__init__(augend, addend, subtract=True)
+
+
 class MULT(object):
     def __init__(self, multiplicand, multiplier):
-        """Summary.
+        """Create a multiplication object between the multiplicand and the multiplier.
 
         Parameters:
         multiplicand -- the first factor of the product. Can be type int, float, Term,
@@ -600,4 +623,4 @@ class POW(object):
         return "({})^{}".format(self._base.value, self._exponent)
         
         
-OPERATION = (ADD, MULT, DIV, POW)
+OPERATION = (ADD, SUB, MULT, DIV, POW)
